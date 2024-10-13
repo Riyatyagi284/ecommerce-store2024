@@ -1,0 +1,132 @@
+{
+    "cartId": "abc123",
+    "userId": "user456",
+    "sessionId": "session789",
+    "createdAt": "2024-09-28T12:34:56Z",
+    "updatedAt": "2024-09-28T12:40:00Z",
+    "items": [
+        {
+        "itemId": "item001",
+            "productId": "prod001",
+            "quantity": 2,
+            "price": 19.99,
+            "totalPrice": 39.98,
+            "productName": "Wireless Mouse",
+            "productDescription": "Ergonomic wireless mouse with long battery life",
+            "productImages": [
+                {
+                    "url": "https://example.com/images/mouse.jpg",
+                    "alt": "Wireless Mouse"
+                }
+            ],
+            "attributes": {
+                "color": "black",
+                "size": "medium"
+            },
+            "discount": {
+                "discountId": "disc001",
+                "discountPercentage": 10,
+                "discountAmount": 4.00,
+                "applied": true
+            },
+            "shipping": {
+                "shippingMethod": "Standard Shipping",
+                "shippingCost": 5.00,
+                "estimatedDelivery": "2024-10-05"
+            },
+            "availability": {
+                "inStock": true,
+                "stockQuantity": 50
+            }
+        },
+        {
+            "itemId": "item002",
+            "productId": "prod002",
+            "quantity": 1,
+            "price": 29.99,
+            "totalPrice": 29.99,
+            "productName": "Mechanical Keyboard",
+            "productDescription": "RGB mechanical keyboard with customizable keys",
+            "productImages": [
+                {
+                    "url": "https://example.com/images/keyboard.jpg",
+                    "alt": "Mechanical Keyboard"
+                }
+            ],
+            "attributes": {
+                "color": "RGB",
+                "layout": "US"
+            },
+            "discount": {
+                "discountId": "disc002",
+                "discountPercentage": 5,
+                "discountAmount": 1.50,
+                "applied": false
+            },
+            "shipping": {
+                "shippingMethod": "Express Shipping",
+                "shippingCost": 10.00,
+                "estimatedDelivery": "2024-10-01"
+            },
+            "availability": {
+                "inStock": false,
+                "stockQuantity": 0
+            }
+        }
+    ],
+    "subtotal": 69.97,
+    "discounts": {
+        "totalDiscount": 5.50,
+        "discountsApplied": [
+            {
+                "discountId": "disc001",
+                "description": "10% off on Wireless Mouse"
+            }
+        ]
+    },
+    "tax": {
+        "taxPercentage": 8,
+        "taxAmount": 5.60
+    },
+    "shippingCost": 15.00,
+    "total": 80.07,
+    "currency": "USD",
+    "userShippingAddress": {
+        "fullName": "John Doe",
+        "addressLine1": "123 Main St",
+        "addressLine2": "Apt 4B",
+        "city": "Springfield",
+        "state": "IL",
+        "postalCode": "62704",
+        "country": "USA",
+        "phone": "555-1234"
+    },
+    "userPaymentMethod": {
+        "paymentMethodId": "pm001",
+        "type": "Credit Card",
+        "last4Digits": "1234",
+        "expirationDate": "12/25",
+        "billingAddress": {
+            "fullName": "John Doe",
+            "addressLine1": "123 Main St",
+            "city": "Springfield",
+            "state": "IL",
+            "postalCode": "62704",
+            "country": "USA"
+        }
+    },
+    "promotions": [
+        {
+            "promotionId": "promo001",
+            "description": "Free shipping on orders over $50",
+            "applied": true
+        }
+    ],
+    "loyaltyPoints": {
+        "earnedPoints": 10,
+        "redeemedPoints": 0,
+        "availablePoints": 100
+    },
+    "cartNotes": "Please deliver between 9 AM and 5 PM.",
+    "isGift": false
+}
