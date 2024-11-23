@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 
+// image can be include in the schema
 const reviewSchema = new mongoose.Schema({
     reviewId: {
         type: UUID,

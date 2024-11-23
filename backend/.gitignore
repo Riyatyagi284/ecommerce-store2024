@@ -28,4 +28,5 @@ order.json
 coupon.json
 product.json
 cart.json
+Tags.json
 .env

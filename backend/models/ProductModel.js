@@ -1,29 +1,26 @@
 import mongoose from 'mongoose';
 const { Schema } = mongoose;
 
+// i will be adding sellers after reaching the certain level 
 const productSchema = new Schema({
     id: {
         type: String,
-        required: true, // Product ID should be mandatory
-        trim: true, // Remove whitespace
-        unique: true // Each product should have a unique ID
+        required: true,
+        trim: true, 
+        unique: true 
     },
     name: {
         type: String,
-        required: true, // Product name is required
+        required: true, 
         trim: true,
-        minlength: 3 // Minimum length of the product name
+        minlength: 3 
     },
     brand: {
         type: String,
         required: true,
         trim: true
     },
-    category: {
-        type: String,
-        required: true,
-        trim: true
-    },
+    category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category' }, 
     sub_category: {
         type: String,
         trim: true
@@ -31,7 +28,7 @@ const productSchema = new Schema({
     price: {
         type: Number,
         required: true,
-        min: 0 // Price must be at least 0
+        min: 0 
     },
     discount_price: {
         type: Number,
@@ -52,22 +49,37 @@ const productSchema = new Schema({
     description: {
         type: String,
         trim: true,
-        maxlength: 2000 // Limit the description length
+        maxlength: 2000 
     },
-    // images: {
-    //     type: [String],
-    //     validate: [array_limit, '{PATH} exceeds the limit of 5'] // Maximum 5 images
-    // },
+    images: {
+        type: [{
+            image_url: { type: String, trim: true, required: true },
+            alt_text: { type: String, trim: true, required: true },
+            position: { type: Number, required: true }
+          }],
+        validate: [array_limit, '{PATH} exceeds the limit of 5'] 
+    },
     // videos: {
     //     type: [String]
     // },
     sizes: {
-        type: [Schema.Types.Mixed],
-        validate: [array_limit, '{PATH} exceeds the limit of 5']
+        type: [{
+            size: { type: String, trim: true },
+            // quantity: { type: Number, min: 0 }
+            chest: { type: String, trim: true },
+            availability: { type: String, trim: true },
+        },],
+        validate: [array_limit, '{PATH} exceeds the limit of 5'],
+        default: undefined,
     },
     colors: {
-        type: [Schema.Types.Mixed],
-        validate: [array_limit, '{PATH} exceeds the limit of 5']
+        type: [{
+            color: { type: String, trim: true },
+            image: { type: String, trim: true },
+            availability: { type: String, trim: true },
+        },],
+        validate: [array_limit, '{PATH} exceeds the limit of 5'],
+        default: undefined,
     },
     materials: {
         type: [String],
@@ -75,14 +87,14 @@ const productSchema = new Schema({
     },
     features: {
         type: [String],
-        validate: [array_limit, '{PATH} exceeds the limit of 10'] // Maximum 10 features
+        validate: [array_limit, '{PATH} exceeds the limit of 10']
     },
     specifications: {
         fit: { type: String, trim: true },
         fabric_type: { type: String, trim: true },
         sleeve_type: { type: String, trim: true },
         neck_style: { type: String, trim: true },
-        pattern: { type: String, trim: true }, 
+        pattern: { type: String, trim: true },
         care_instructions: { type: String, trim: true }
     },
     reviews: {
@@ -95,8 +107,7 @@ const productSchema = new Schema({
         type: [Schema.Types.Mixed]
     },
     tags: {
-        type: [String],
-        validate: [array_limit, '{PATH} exceeds the limit of 10']
+        type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Tag' }]
     },
     related_products: {
         type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Product' }]
@@ -111,7 +122,7 @@ const productSchema = new Schema({
     },
     availability: {
         type: String,
-        enum: ['In Stock', 'Out of Stock', 'Limited Stock'] // Allowed availability statuses
+        enum: ['In Stock', 'Out of Stock', 'Limited Stock']
     },
     shipping_details: {
         free_shipping: { type: Boolean },
