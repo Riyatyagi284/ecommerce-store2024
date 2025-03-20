@@ -1,9 +1,3 @@
-// createproduct, deleteProduct, updateProduct, getSpecificProduct, getAllProducts
-
-
-// 4steps for createApi method: 
-// a) dataFetch, b) validate, c) send this data to database and save it there. d) send successful product create response.
-
 import mongoose from 'mongoose';
 import { Product } from '../models/ProductModel.js';
 import { body, check, validationResult, query, param } from 'express-validator';
@@ -15,7 +9,7 @@ const array_limit = (val) => val.length <= 5;
 
 export const createProduct = [
 
-    // IMPROVEMENTS-SUGGESTIONS :--
+    // IMPROVEMENTS :--
     // a) for SCHEMA_VALIDATIONS
     //  1) Add Quantity for Sizes:-- validation to track the available quantity for each size.
 
@@ -28,8 +22,6 @@ export const createProduct = [
 
     // store images on cloudinary server.
 
-
-    // Express-validator middleware for additional validations
     body('id').trim().notEmpty().withMessage('Product ID is required').isString().withMessage('Product ID must be a string'),
     body('name').trim().isLength({ min: 3 }).withMessage('Product name must be at least 3 characters long'),
     body('brand').trim().notEmpty().withMessage('Brand is required'),
@@ -109,7 +101,6 @@ export const createProduct = [
 ];
 
 export const createBulkProducts = [
-    // Validation rules
     body('products').isArray({ min: 1 }).withMessage('Products should be an array with at least one product'),
 
     body('products.*.id').trim().notEmpty().withMessage('Product ID is required').isString().withMessage('Product ID must be a string'),
@@ -132,7 +123,6 @@ export const createBulkProducts = [
         })
         .withMessage('Discount price cannot exceed the regular price'),
 
-    // DiscountPrice 
     body('products.*.currency').trim().isIn(['USD', 'EUR', 'INR', 'GBP']).withMessage('Invalid currency'),
     body('products.*.description').optional().trim().isLength({ max: 2000 }).withMessage('Description must not exceed 2000 characters'),
     body('products.*.images').optional().isArray().custom((val) => array_limit(val, 5)).withMessage('You can upload up to 5 images'),
@@ -143,7 +133,6 @@ export const createBulkProducts = [
     body('products.*.stock').isInt({ min: 0 }).withMessage('Stock must be a positive integer'),
     body('products.*.availability').optional().isIn(['In Stock', 'Out of Stock', 'Limited Stock']).withMessage('Invalid availability status'),
 
-    // Handling bulk product creation
     async (req, res) => {
         const errors = validationResult(req);
         if (!errors.isEmpty()) {
@@ -153,7 +142,6 @@ export const createBulkProducts = [
         const { products } = req.body;
 
         try {
-            // Insert products in bulk using Mongoose
             const createdProducts = await Product.insertMany(products);
 
             return res.status(201).json({
@@ -258,9 +246,8 @@ export const getProducts = [
     }
 ];
 
-
 export const getProductById = [
-    param('id').isMongoId().withMessage('Invalid product ID format'),
+    param('id').isString().withMessage('Invalid product ID format'),
 
     async (req, res) => {
         const errors = validationResult(req);
@@ -268,7 +255,7 @@ export const getProductById = [
             return res.status(400).json({ errors: errors.array() });
         }
         try {
-            const productData = await Product.findById(req.params.id);
+            const productData = await Product.findOne({ id: req.params.id }).populate('tags').populate('reviews').populate('ratings');
 
             if (!productData) {
                 return res.status(400).json({
@@ -293,7 +280,7 @@ export const getProductById = [
 ];
 
 export const deleteProduct = [
-    param('id').isMongoId().withMessage('Invalid product ID format'),
+    param('id').isString().withMessage('Invalid product ID format'),
 
     async (req, res) => {
         const errors = validationResult(req);
@@ -301,7 +288,7 @@ export const deleteProduct = [
             return res.status(400).json({ errors: errors.array() });
         }
         try {
-            const product = await Product.findById(req.params.id);
+            const product = await Product.findOne({ id: req.params.id });
 
             if (!product) {
                 return res.status(404).json({ message: 'Product not found' });
@@ -314,7 +301,11 @@ export const deleteProduct = [
             // await cloudinary.uploader.destroy(image.public_id);
             // });
 
-            await Product.findByIdAndDelete(req.params.id);
+            // Remove product from tag collections
+            // Remove product reference from category and sub-category 
+            // Remove product ratings and reviews if exists
+
+            await Product.findOneAndDelete({ id: req.params.id });
             res.status(200).json({ message: 'Product deleted successfully' });
         }
         catch (err) {
@@ -325,30 +316,90 @@ export const deleteProduct = [
 ];
 
 export const updateProduct = [
-    param('id').isMongoId().withMessage('Invalid product ID format'),
+    param('id').isString().withMessage('Invalid product ID format'),
+
+    body('name').optional().isString().trim().isLength({ min: 3 }).withMessage('Name must be at least 3 characters'),
+    body('brand').optional().isString().trim().notEmpty().withMessage('Brand is required'),
+    body('category').optional().isMongoId().withMessage('Invalid category ID'),
+    body('sub_category').optional().isString().trim(),
+
+    // Validate pricing
+    body('price').optional().isFloat({ min: 0 }).withMessage('Price must be a positive number'),
+
+    body('discount_price')
+        .optional()
+        .isFloat({ min: 0 })
+        .withMessage('Discount price must be a positive number')
+        .custom(async (value, { req }) => {
+            if (req.body.price) {
+                if (parseFloat(value) > parseFloat(req.body.price)) {
+                    throw new Error('Discount price cannot exceed the regular price');
+                }
+            } else {
+                const product = await Product.findOne({ id: req.params.id });
+                if (product && parseFloat(value) > product.price) {
+                    throw new Error('Discount price cannot exceed the regular price');
+                }
+            }
+            return true;
+        }),
+
+
+    body('currency').optional().isIn(['USD', 'EUR', 'INR', 'GBP']).withMessage('Invalid currency type'),
+    body('description').optional().isString().trim().isLength({ max: 2000 }).withMessage('Description too long'),
+
+    // Validate images array (limit to 5 images)
+    body('images').optional().isArray({ max: 5 }).withMessage('Cannot exceed 5 images'),
+    body('images.*.image_url').optional().isString().trim().notEmpty().withMessage('Image URL is required'),
+    body('images.*.alt_text').optional().isString().trim().notEmpty().withMessage('Alt text is required'),
+    body('images.*.position').optional().isInt({ min: 1 }).withMessage('Position must be a positive integer'),
+
+    // Validate stock
+    body('stock').optional().isInt({ min: 0 }).withMessage('Stock must be a non-negative integer'),
+    body('availability').optional().isIn(['In Stock', 'Out of Stock', 'Limited Stock']).withMessage('Invalid availability status'),
+
+    // Validate sizes, colors, materials, features (limit validation applied)
+    body('sizes').optional().isArray({ max: 5 }).withMessage('Cannot exceed 5 sizes'),
+    body('colors').optional().isArray({ max: 5 }).withMessage('Cannot exceed 5 colors'),
+    body('materials').optional().isArray({ max: 5 }).withMessage('Cannot exceed 5 materials'),
+    body('features').optional().isArray({ max: 10 }).withMessage('Cannot exceed 10 features'),
+
+    // Validate shipping details
+    body('shipping_details.free_shipping').optional().isBoolean(),
+    body('shipping_details.estimated_delivery').optional().isString().trim(),
+    body('shipping_details.shipping_cost').optional().isFloat({ min: 0 }).withMessage('Shipping cost must be non-negative'),
+    body('shipping_details.express_shipping_cost').optional().isFloat({ min: 0 }).withMessage('Express shipping cost must be non-negative'),
+    body('shipping_details.international_shipping').optional().isBoolean(),
+
+    body('return_policy').optional().isString().trim(),
+    body('warranty').optional().isString().trim(),
 
     async (req, res) => {
         const errors = validationResult(req);
         if (!errors.isEmpty()) {
             return res.status(400).json({ errors: errors.array() });
         }
+
         try {
             const { id } = req.params;
+            const updateData = req.body;
 
-            // validate if the discount price is lower than the actual price
-            if (req.body.discount_price && req.body.discount_price > req.body.price) {
-                return res.status(400).json({ message: 'discount price cannot exceed the regular price' });
-            }
+            // Auto-update the `meta.updated_at` field
+            updateData['meta.updated_at'] = new Date();
 
-            const updatedProduct = await Product.findByIdAndUpdate(id, req.body, { new: true });
+            const updatedProduct = await Product.findOneAndUpdate(
+                { id }, 
+                updateData,
+                { new: true }
+            );
+
             if (!updatedProduct) {
                 return res.status(404).json({ message: 'Product not found' });
             }
-            // handle images update on cloud
 
             res.status(200).json({ message: 'Product updated successfully', updatedProduct });
         } catch (error) {
-            console.log(`error occured while updating product , ${error.message}`);
+            console.error(`Error updating product: ${error.message}`);
             res.status(500).json({ error: error.message });
         }
     }
@@ -372,9 +423,7 @@ export const addTag = [
                 return res.status(400).json({ message: 'Product ID is required' });
             }
 
-            // const products = await Product.find({ productId: { $in: productId } });
-
-            const products = await Product.find({ _id: { $in: productId } });
+            const products = await Product.find({ id: { $in: productId } });
 
             if (!products || products.length === 0) {
                 return res.status(400).json({ message: 'Products not found' });
@@ -411,7 +460,7 @@ export const addTag = [
 
             // Update the products to add the tag reference
             await Product.updateMany(
-                { _id: { $in: productId } },
+                { id: { $in: productId } },
                 { $push: { tags: newTag._id } }
             );
 
@@ -423,37 +472,37 @@ export const addTag = [
     }
 ];
 
-export const getTagById = async(req,res) => {
-    try{
-     
-    } catch(error) {
+export const getTagById = async (req, res) => {
+    try {
+
+    } catch (error) {
         console.log(`Error getting tag by id: ${error.message}`);
         res.status(500).json({ message: 'Error getting tag by id', error: error.message });
     }
 }
 
-export const deleteTag = async(req,res) => {
+export const deleteTag = async (req, res) => {
     try {
 
-    } catch(error) {
-    console.log(`Error deleting tag: ${error.message}`);
-    res.status(500).json({ message: 'Error deleting tag', error: error.message });
-    } 
+    } catch (error) {
+        console.log(`Error deleting tag: ${error.message}`);
+        res.status(500).json({ message: 'Error deleting tag', error: error.message });
+    }
 }
 
-export const updateTag = async(req,res) => {
- try{
-  // validate and update tag here, we should have validation for related_tags and tag_id here as well
- } catch (error) {
-    console.log(`Error updating tag: ${error.message}`);
-    res.status(500).json({ message: 'Error updating tag', error: error.message });
-   
- }
+export const updateTag = async (req, res) => {
+    try {
+        // validate and update tag here, we should have validation for related_tags and tag_id here as well
+    } catch (error) {
+        console.log(`Error updating tag: ${error.message}`);
+        res.status(500).json({ message: 'Error updating tag', error: error.message });
+
+    }
 }
 
 export const createBatchTagging = async (req, res) => {
-    try{
-       
+    try {
+
     } catch (error) {
         console.log(`Error creating batch tagging: ${error.message}`);
         res.status(500).json({ message: 'Error creating batch tagging', error: error.message });
@@ -486,27 +535,27 @@ export const getRelatedProductsByCategory = async (req, res) => {
 };
 
 export const getRelatedProductsByAttribute = async (req, res) => {
-    try{
-      const { productId } = req.query;
-      
-      if (!productId) {
-        return res.status(400).json({ message: 'Product ID is required' });
-      }
-      
-      const product = await Product.findById(productId);
+    try {
+        const { productId } = req.query;
 
-      if (!product) {
-        return res.status(404).json({ message: 'Product not found' });
-      }
-      
-      const relatedProducts = await Product.find({
-        brand: product.brand,
-        colors: product.colors,
-        sizes: product.sizes,
-        _id: { $ne: productId },
-      }).limit(4);
-      
-      res.json({product, relatedProducts});
+        if (!productId) {
+            return res.status(400).json({ message: 'Product ID is required' });
+        }
+
+        const product = await Product.findById(productId);
+
+        if (!product) {
+            return res.status(404).json({ message: 'Product not found' });
+        }
+
+        const relatedProducts = await Product.find({
+            brand: product.brand,
+            colors: product.colors,
+            sizes: product.sizes,
+            _id: { $ne: productId },
+        }).limit(4);
+
+        res.json({ product, relatedProducts });
     } catch (error) {
         console.log(`Error fetching related products by attribute: ${error.message}`);
         res.status(500).json({ message: 'Error fetching related products by attribute', error: error.message });
@@ -535,154 +584,6 @@ export const getRelatedtags = async (req, res) => {
         res.status(500).json({ message: 'Error getting related tags', error: error.message });
     }
 }
-
-//  Apis related to tags
-
-// add -> a) improve validation to ensure that the tag follows your desired format or criteria.
-
-// b) further enhanced for more granular error responses.
-// c) Implementing additional logic to handle "Tags as Unique".
-
-// export const addTags = async (req, res) => {
-//     try {
-//         const { id } = req.params;
-//         const { tag } = req.body;
-
-//         if (!tags) {
-//             return res.status(400).json({ message: 'Please provide tag' });
-//         }
-
-//         const product = await Product.findById(id);
-
-//         if (!product) {
-//             return res.status(404).json({ message: 'Product not found' });
-//         }
-
-//         // product.tags = [...product.tags,...tags];
-
-//         if (!product.tags.includes(tag)) {
-//             product.tags.push(tag);
-//             await product.save();
-//             return res.status(200).json({ message: 'Tags added successfully', product });
-//         }
-//         else {
-//             return res.status(400).json({ message: 'This tag already exists for this product' });
-//         }
-//     } catch (err) {
-//         console.log(`Error adding tags to product: ${err.message}`);
-//         res.status(500).json({ error: err.message });
-//     }
-// }
-
-// export const getProductTags = async (req, res) => {
-//     try {
-
-//     } catch (err) {
-//         console.log(`Error getting tags for product: ${error.message}`);
-//         res.status(500).json({ error: error.message });
-//     }
-// }
-
-// export const getProductByTag = async (req, res) => {
-//     try {
-//         const { tag } = req.params;
-//         const products = await Product.find({ tags: tag });
-
-//         if (products.length === 0) {
-//             return res.status(404).json({ message: 'Product not found with this tag' })
-//         }
-
-//         return res.status(200).json({ message: 'Product found', products: products });
-//     } catch (err) {
-//         console.log(`Error getting products by tag: ${err.message}`);
-//         res.status(500).json({ error: err.message });
-//     }
-// }
-
-// export const deleteProductTags = async (req, res) => {
-//     try {
-//         const { id, tag } = req.params;
-//         const product = await Product.findById(id);
-
-//         if (!product) {
-//             return res.status(404).json({ message: 'Product not found' });
-//         }
-
-//         //  Remove the ag if it exists
-
-//         if (product.tags.includes(tag)) {
-//             product.tags = product.tags.filter(t => t !== tag);
-//             await product.save();
-//             return res.status(200).json({ message: 'Tag removed successfully', product });
-//         } else {
-//             return res.status(400).json({ message: 'This tag does not exist for this product' });
-//         }
-
-//     } catch (error) {
-//         console.log(`Error deleting tags from product: ${error.message}`);
-//         res.status(500).json({ error: error.message });
-//     }
-// }
-
-//  Apis related to bulk create and update products
-
-// enhance this further by adding validation, logging failed updates, or handling specific errors
-
-// export const createProductsInBulk = async (req, res) => {
-//     try {
-//         const products = req.body.products;
-
-//         if (!products || !Array.isArray(products) || products.length === 0) {
-//             return res.status(400).json({ message: 'Products array is required and cannot be empty' })
-//         }
-
-//         const createBulkProducts = await Product.insertMany(products, { ordered: false })
-//         res.status(200).json({ message: `${createBulkProducts.length} products created successfully!!` });
-//     } catch (err) {
-//         console.log(`Error creating products in bulk: ${err.message}`);
-
-//         if (err.name === 'BulkWriteError') {
-//             // handle duplicate key error or validation error
-//             const duplicateErrorIndex = err.result?.writeErrors?.find(e => e.code === 11000);
-
-//             if (duplicateErrorIndex) {
-//                 return res.status(400).json({
-//                     message: 'Duplicate product ID detected. Bulk insertion aborted.'
-//                 })
-//             }
-//             return res.status(400).json({ message: 'Error in bulk insertion', errors: error.writeErrors })
-//         }
-//         res.status(500).json({ message: 'Internal Server error found', error: err.message });
-//     }
-// }
-
-// export const updateProductsInBulk = async (req, res) => {
-//     try {
-//         const updateProductsData = req.body.updates;
-
-//         if (!updateProductsData || updateProductsData.length === 0 || !Array.isArray(updateProductsData)) {
-//             return res.status(400).json({ message: 'Updates array is required and cannot be empty' })
-//         }
-
-//         const bulkOperations = updateProductsData.map((updateData) => {
-//             return {
-//                 updateOne: {
-//                     filter: { id: updateData.id },
-//                     update: { $set: updateData.data },
-//                     new: true,
-//                     upsert: false, // if product not found it won't create any new product.
-//                 }
-//             }
-//         })
-
-//         const result = await Product.bulkWrite(bulkOperations, { ordered: false });
-
-//         res.status(200).json({ message: `${result.modifiedCount} products updated successfully!!` });
-//     } catch (err) {
-//         console.log(`Error updating products in bulk: ${err.message}`);
-//         res.status(500).json({ error: err.message });
-//     }
-// }
 
 //  Apis related to product availability checker
 export const availabilityChecker = async (req, res) => {
@@ -751,31 +652,31 @@ export const trackProductStock = async (req, res) => {
 }
 
 //  Apis related to adding product to wishlist
-// export const addProductsToWishlist = async (req, res) => {
-//     try {
+export const addProductsToWishlist = async (req, res) => {
+    try {
 
-//     } catch (err) {
-//         console.log(`Error adding product to wishlist: ${err.message}`);
-//         res.status(500).json({ error: err.message });
-//     }
-// }
+    } catch (err) {
+        console.log(`Error adding product to wishlist: ${err.message}`);
+        res.status(500).json({ error: err.message });
+    }
+}
 
 //  Apis related to getting wishlist products
-// export const getWishlistProduct = async (req, res) => {
-//     try {
+export const getWishlistProduct = async (req, res) => {
+    try {
 
-//     } catch (err) {
-//         console.log(`Error getting wishlist products: ${err.message}`);
-//         res.status(500).json({ error: err.message });
-//     }
-// }
+    } catch (err) {
+        console.log(`Error getting wishlist products: ${err.message}`);
+        res.status(500).json({ error: err.message });
+    }
+}
 
 //  Apis related to social media sharing
-// export const shareProductOnSocialMedia = async (req, res) => {
-//     try {
+export const shareProductOnSocialMedia = async (req, res) => {
+    try {
 
-//     } catch (err) {
-//         console.log(`Error sharing product on social media: ${err.message}`);
-//         res.status(500).json({ error: err.message });
-//     }
-// }
+    } catch (err) {
+        console.log(`Error sharing product on social media: ${err.message}`);
+        res.status(500).json({ error: err.message });
+    }
+}

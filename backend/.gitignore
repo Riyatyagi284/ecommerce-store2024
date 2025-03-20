@@ -24,6 +24,7 @@ dist-ssr
 *.sw?
 
 # Json files
+cart.json
 order.json
 coupon.json
 product.json
