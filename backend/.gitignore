@@ -25,9 +25,14 @@ dist-ssr
 
 # Json files
 cart.json
+auth.json
+user.json
 order.json
 coupon.json
 product.json
 cart.json
 Tags.json
+todo.txt
+mailSender.js
+myPreviousCode.txt
 .env

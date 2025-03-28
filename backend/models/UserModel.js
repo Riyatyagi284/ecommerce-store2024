@@ -1,11 +1,14 @@
+import mongoose from 'mongoose';
+const { Schema } = mongoose;
+
+
 const userSchema = new mongoose.Schema({
     userId: {
         type: Schema.Types.UUID,
-        required: true,
     },
     email: {
         type: String,
-        format: email,
+        format: 'email',
         required: true,
     },
     password: {
@@ -13,17 +16,20 @@ const userSchema = new mongoose.Schema({
         required: true,
         minlength: 8,
     },
+    confirmPassword: {
+        type: String,
+        // required: true,
+        minlength: 8,
+    },
     firstName: {
         type: String,
         minLength: 1,
         maxLength: 100,
-        required: true,
     },
     lastName: {
         type: String,
         minLength: 1,
         maxLength: 100,
-        required: true,
     },
     phone: {
         type: String,
@@ -31,13 +37,18 @@ const userSchema = new mongoose.Schema({
         required: true,
     },
     dateOfBirth: {
-        type: string,
-        format: date,
+        type: String,
+        format: Date,
     },
     gender: {
-        type: string,
+        type: String,
         enum: ["Male", "Female", "Other", "Prefer not to say"],
     },
+    resetPasswordToken: {
+        type: String,
+    },
+    resetPasswordExpires: { type: Date },
+    isVerified: { type: Boolean, default: false },
     addresses: [
         {
             type: mongoose.Schema.Types.ObjectId,
@@ -60,33 +71,30 @@ const userSchema = new mongoose.Schema({
 
     loyaltyPoints: {
         pointsEarned: {
-            type: number,
+            type: Number,
             minimum: 0
         },
         pointsSpent: {
-            type: number,
+            type: Number,
             minimum: 0
         },
         pointsAvailable: {
-            type: number,
+            type: Number,
             minimum: 0
         }
     },
 
     accountStatus: {
-        type: string,
+        type: String,
         enum: ["Active", "Suspended", "Banned"],
-        required: true
     },
     role: {
-        type: string,
+        type: String,
         enum: ["Customer", "Admin"],
-        required: true
     },
 
     createdAt: {
         type: Date,
-        required: true,
         default: Date.now,
     },
     updatedAt: {
@@ -95,4 +103,4 @@ const userSchema = new mongoose.Schema({
     }
 });
 
-const User = mongoose.model('User', userSchema);
+export const User = mongoose.model('User', userSchema);
