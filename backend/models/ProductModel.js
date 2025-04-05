@@ -5,7 +5,7 @@ const { Schema } = mongoose;
 const productSchema = new Schema({
     id: {
         type: String,
-        required: true,
+        // required: true,
         trim: true, 
         unique: true 
     },

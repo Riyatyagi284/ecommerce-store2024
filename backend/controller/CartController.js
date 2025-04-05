@@ -1,12 +1,16 @@
 import express from 'express';
-import { body, validationResult, param } from 'express-validator';
-import { Product } from '../models/ProductModel.js';
-import { Cart } from '../models/CartItemModel.js';
+import { body, validationResult, param, query } from 'express-validator';
 import mongoose from 'mongoose';
-
+import { Product } from '../models/ProductModel.js';
+import { Cart } from '../models/CartModel.js';
+import { Item } from "../models/CartItemModel.js";
 import { User } from "../models/UserModel.js";
-import { Coupon } from "../models/CouponModel.js";
+import { Coupon } from '../models/CouponsModel.js';
+import { Discount } from "../models/DiscountModel.js";
 import { calculateCartTotal } from "../utils/calculateCartTotal.js";
+import { UserShippingAddress } from '../models/UserShippingAddressModel.js';
+import { UserPaymentMethod } from '../models/UserPaymentModel.js';
+
 
 export const addToCart = [
     body('productId').isMongoId().withMessage('Invalid product ID format'),
@@ -23,16 +27,20 @@ export const addToCart = [
         }
 
         try {
-            const { productId, quantity, selectedSize, selectedColor, sessionId } = req.body;
+            const { productId, quantity, selectedSize, selectedColor, sessionId = null, cartId, userId } = req.body;
+
+            // console.log('sessionId', sessionId);
+
+            const productQuantity = Number(quantity);
 
             // Check if product exists
-            const product = await Product.findById(productId);
+            const product = await Product.findOne({ _id: productId });
             if (!product) {
                 return res.status(404).json({ message: 'Product not found' });
             }
 
             // Check stock availability
-            if (product.stock < quantity) {
+            if (product.stock < productQuantity) {
                 return res.status(400).json({ message: 'Insufficient stock available' });
             }
 
@@ -47,19 +55,21 @@ export const addToCart = [
             }
 
             // Find or create cart for user/session
-            let cart = await Cart.findOne({ sessionId });
+            // let cart = await Cart.findOne({ sessionId });
+            let cart = await Cart.findOne({ cartId });
             if (!cart) {
                 cart = new Cart({
-                    cartId: new mongoose.Types.ObjectId().toString(),
-                    userId: req.user ? req.user.id : null, // Handle guest users
+                    // cartId: new mongoose.Types.ObjectId().toString(),
+                    // userId: req.user ? req.user.id : null, // Handle guest users
+                    userId: userId, // Handle guest users
                     sessionId,
                     items: [],
                     subtotal: 0,
                     total: 0,
                     currency: product.currency,
                 });
+                // console.log('cart', cart)
             }
-
             // Check if product already exists in cart
             const existingItem = cart.items.find(
                 item =>
@@ -69,20 +79,53 @@ export const addToCart = [
             );
 
             if (existingItem) {
-                existingItem.quantity += quantity;
+                existingItem.quantity += productQuantity;
             } else {
-                cart.items.push({
-                    product: productId,
-                    quantity,
-                    selectedSize,
-                    selectedColor,
+                // cart.items.push({
+                //     product: productId,
+                //     quantity: productQuantity,
+                //     selectedSize,
+                //     selectedColor,
+                // });
+
+                const newItem = new Item({
+                    productId,
+                    quantity: productQuantity,
+                    price: product.price,
+                    totalPrice: product.price * productQuantity,
+                    productName: product.name,
+                    attributes: { color: selectedColor, size: selectedSize },
+                    availability: { inStock: product.stock > 0, stockQuantity: product.stock }
                 });
+                await newItem.save();
+                cart.items.push(newItem._id);
             }
 
             // Update subtotal, tax, and total
-            cart.subtotal = cart.items.reduce((sum, item) => sum + product.price * item.quantity, 0);
-            cart.tax.taxAmount = cart.subtotal * (cart.tax.taxPercentage || 0) / 100;
-            cart.total = cart.subtotal + cart.tax.taxAmount + (cart.shippingCost || 0);
+            // cart.subtotal = cart.items.reduce((sum, item) => {
+            //     console.log('inner_item', item);
+            //     sum + product?.price * item.quantity, 0
+            // });
+
+            // console.log('cart', cart);
+            // cart.subtotal = cart.items.reduce((sum, item) => {
+            //     console.log("item" , item)
+            //     console.log("sum" , sum)
+            //     // console.log("item" , item.totalPrice)
+            //     // console.log("sum" ,sum + item.totalPrice)
+            //     // return sum + item.totalPrice;
+            //     // return sum + item.price * item.quantity;
+            // }, 0);
+
+            await cart.populate('items'); // Fetch actual Item documents
+
+            cart.subtotal = cart.items.reduce((sum, item) => {
+                return sum + item.price * item.quantity;
+            }, 0);
+
+            // cart.tax.taxAmount = cart?.subtotal * (cart?.tax?.taxPercentage || 0) / 100;
+            // cart.total = cart?.subtotal + cart?.tax.taxAmount + (cart?.shippingCost || 0);
+            // console.log('cart', cart);
 
             await cart.save();
             return res.status(200).json({ message: 'Product added to cart successfully', cart });
@@ -376,3 +419,461 @@ export const saveCartForFutureUse = async (req, res) => {
         res.status(500).json({ message: err.message });
     }
 }
+
+// implementation of other cart related apis
+
+// Update Cart API
+export const updateCart = [
+    body('sessionId').optional().isString().withMessage('Session ID must be a string'),
+    body('items').optional().isArray().withMessage('Items must be an array'),
+    body('total').optional().isNumeric().withMessage('Total must be a number'),
+    body('currency').optional().isString().withMessage('Currency must be a string'),
+    body('userShippingAddress').optional().isObject().withMessage('Shipping address must be an object'),
+    body('userPaymentMethod').optional().isString().withMessage('Payment method must be a string'),
+    body('promotions').optional().isArray().withMessage('Promotions must be an array'),
+    body('loyaltyPoints').optional().isNumeric().withMessage('Loyalty points must be a number'),
+    body('cartNotes').optional().isString().withMessage('Cart notes must be a string'),
+    body('isGift').optional().isBoolean().withMessage('isGift must be a boolean'),
+    body('savedForLater').optional().isBoolean().withMessage('savedForLater must be a boolean'),
+
+    async (req, res) => {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({ errors: errors.array() });
+        }
+
+        try {
+            const { cartId } = req.params;
+            const updateData = req.body;
+
+            // Validate that cartId exists
+            const cart = await Cart.findOne({ cartId });
+            if (!cart) {
+                return res.status(404).json({ message: 'Cart not found' });
+            }
+
+            // Prevent update of cartId and userId
+            if (updateData.cartId || updateData.userId) {
+                return res.status(400).json({ message: 'cartId and userId cannot be updated' });
+            }
+
+            // Updating only allowed fields
+            const updatedCart = await Cart.findOneAndUpdate(
+                { cartId },
+                {
+                    ...updateData,
+                    updatedAt: new Date()  // Update the updatedAt field
+                },
+                { new: true }
+            );
+
+            res.json(updatedCart);
+        } catch (error) {
+            console.error(error);
+            res.status(500).json({ message: 'Server Error' });
+        }
+    }
+];
+
+// create discount first before applying
+
+export const createDiscount = [
+    body("code").trim().isString().notEmpty().withMessage("Discount code is required."),
+    body("discountType").isIn(["percentage", "flat"]).withMessage("Invalid discount type."),
+    body("discountValue")
+        .isNumeric()
+        .custom((value, { req }) => {
+            if (req.body.discountType === "percentage" && (value <= 0 || value > 100)) {
+                throw new Error("Percentage discount must be between 1 and 100.");
+            }
+            if (req.body.discountType === "flat" && value <= 0) {
+                throw new Error("Flat discount must be greater than 0.");
+            }
+            return true;
+        }),
+    body("minPurchaseAmount").optional().isNumeric().withMessage("Min purchase must be a number."),
+    body("maxUsage").isInt({ gt: 0 }).withMessage("Max usage must be a positive integer."),
+    body("validFrom").isISO8601().withMessage("Invalid start date format."),
+    body("validUntil").isISO8601().withMessage("Invalid end date format."),
+    async (req, res) => {
+        // Validate input
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({ success: false, errors: errors.array() });
+        }
+
+        try {
+            const { code, discountType, discountValue, minPurchaseAmount, maxUsage, validFrom, validUntil } = req.body;
+
+            // Ensure valid date range
+            if (new Date(validFrom) >= new Date(validUntil)) {
+                return res.status(400).json({ success: false, message: "ValidUntil must be after ValidFrom." });
+            }
+
+            // Check if discount code already exists
+            const existingDiscount = await Discount.findOne({ code });
+            if (existingDiscount) {
+                return res.status(400).json({ success: false, message: "Discount code already exists." });
+            }
+
+            // Create new discount
+            const discount = new Discount({
+                code,
+                discountType,
+                discountValue,
+                minPurchaseAmount,
+                maxUsage,
+                validFrom,
+                validUntil,
+            });
+
+            await discount.save();
+
+            res.status(201).json({ success: true, message: "Discount created successfully!", discount });
+        } catch (error) {
+            console.error("Error creating discount:", error);
+            res.status(500).json({ success: false, message: "Internal Server Error. Please try again later." });
+        }
+    }
+];
+
+export const applyDiscount = [
+    body("code").trim().notEmpty().withMessage("Discount code is required."),
+    body("cartTotal").isNumeric().withMessage("Cart total must be a number."),
+
+    async (req, res) => {
+        // Validate input
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({ success: false, errors: errors.array() });
+        }
+
+        try {
+            const { code, cartTotal } = req.body;
+            const userId = req.user._id;
+
+            // Check if the discount exists
+            const discount = await Discount.findOne({ code });
+            if (!discount) {
+                return res.status(404).json({ success: false, message: "Invalid discount code." });
+            }
+
+            // Check if discount is within the valid date range
+            const currentDate = new Date();
+            if (currentDate < discount.validFrom || currentDate > discount.validUntil) {
+                return res.status(400).json({ success: false, message: "Discount code is expired or not active yet." });
+            }
+
+            // Check if the discount has reached its max usage
+            const usageCount = await Cart.countDocuments({ "discountsApplied.discountId": discount._id });
+            if (usageCount >= discount.maxUsage) {
+                return res.status(400).json({ success: false, message: "This discount code has reached its maximum usage limit." });
+            }
+
+            // Ensure cart total meets minimum purchase amount
+            if (cartTotal < discount.minPurchaseAmount) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Minimum purchase of ₹${discount.minPurchaseAmount} required to use this discount.`,
+                });
+            }
+
+            // Calculate discount amount
+            let discountAmount = 0;
+            if (discount.discountType === "percentage") {
+                discountAmount = (cartTotal * discount.discountValue) / 100;
+            } else {
+                discountAmount = discount.discountValue;
+            }
+
+            // Apply discount to the cart
+            const cart = await Cart.findOne({ userId });
+            if (!cart) {
+                return res.status(404).json({ success: false, message: "Cart not found." });
+            }
+
+            cart.discounts.totalDiscount = discountAmount;
+            cart.discounts.discountsApplied.push({
+                discountId: discount._id,
+                description: `Applied ${discount.code} - ₹${discountAmount} off`,
+            });
+
+            await cart.save();
+
+            res.status(200).json({
+                success: true,
+                message: "Discount applied successfully!",
+                totalDiscount: discountAmount,
+                updatedCart: cart,
+            });
+        } catch (error) {
+            console.error("Error applying discount:", error);
+            res.status(500).json({ success: false, message: "Internal Server Error. Please try again later." });
+        }
+    }
+];
+
+export const applyTax = async (req, res) => {
+    try {
+        const { cartId, taxPercentage } = req.body;
+
+        let cart = await Cart.findById(cartId);
+        if (!cart) return res.status(404).json({ message: "Cart not found" });
+
+        cart.tax.taxPercentage = taxPercentage;
+        cart.tax.taxAmount = cart.subtotal * (taxPercentage / 100);
+
+        cart.total = cart.subtotal - cart.discounts.totalDiscount + cart.tax.taxAmount + cart.shippingCost;
+
+        await cart.save();
+        res.json(cart);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// shipping_address includes: email, firstName, lastName, phone, address, city, state, zip_code, country, 
+
+export const setUserShippingAddress = [
+    body("fullName").trim().notEmpty().withMessage("Full name is required"),
+    body("addressLine1").trim().notEmpty().withMessage("Address Line 1 is required"),
+    body("city").trim().notEmpty().withMessage("City is required"),
+    body("state").trim().notEmpty().withMessage("State is required"),
+    body("postalCode").trim().notEmpty().withMessage("Postal Code is required"),
+    body("country").trim().notEmpty().withMessage("Country is required"),
+    body("phone")
+        .optional()
+        .isMobilePhone()
+        .withMessage("Invalid phone number format"),
+    body("isDefault").optional().isBoolean().withMessage("isDefault must be a boolean"),
+
+    async (req, res) => {
+        try {
+            // Validate request body
+            const errors = validationResult(req);
+            if (!errors.isEmpty()) {
+                return res.status(400).json({ success: false, errors: errors.array() });
+            }
+
+            const { fullName, addressLine1, addressLine2, city, state, postalCode, country, phone, isDefault } = req.body;
+            const userId = req.user.id; // Extracted from JWT in verifyToken middleware
+
+            // If isDefault is true, reset other addresses' isDefault to false
+            if (isDefault) {
+                await UserShippingAddress.updateMany({ userId }, { isDefault: false });
+            }
+
+            const newAddress = new UserShippingAddress({
+                userId,
+                fullName,
+                addressLine1,
+                addressLine2,
+                city,
+                state,
+                postalCode,
+                country,
+                phone,
+                isDefault: isDefault || false,
+            });
+
+            await newAddress.save();
+            return res.status(201).json({ success: true, message: "Address added successfully", data: newAddress });
+        } catch (error) {
+            console.error("Error adding shipping address:", error);
+            return res.status(500).json({ success: false, message: "Server error" });
+        }
+    }
+]
+
+export const getUserShippingAddress = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const addresses = await UserShippingAddress.find({ userId }).sort({ isDefault: -1 });
+
+        if (!addresses.length) {
+            return res.status(404).json({ success: false, message: "No shipping addresses found" });
+        }
+
+        return res.status(200).json({ success: true, data: addresses });
+    } catch (error) {
+        console.error("Error fetching shipping addresses:", error);
+        return res.status(500).json({ success: false, message: "Server error" });
+    }
+} 
+
+export const setUserPaymentAddress = [
+    body("paymentMethodId").trim().notEmpty().withMessage("Payment method ID is required"),
+    body("cardType").isIn(["Visa", "MasterCard", "Amex", "Discover"]).withMessage("Invalid card type"),
+    body("cardLast4Digits").isLength({ min: 4, max: 4 }).withMessage("Card last 4 digits must be exactly 4 digits"),
+    body("expirationDate").isISO8601().withMessage("Invalid expiration date"),
+    body("cardHolderName").trim().notEmpty().withMessage("Cardholder name is required"),
+
+    // Billing Address Validation
+    body("billingAddress.fullName").trim().notEmpty().withMessage("Billing full name is required"),
+    body("billingAddress.phone").isMobilePhone().withMessage("Invalid phone number format"),
+    body("billingAddress.addressLine1").trim().notEmpty().withMessage("Billing address line 1 is required"),
+    body("billingAddress.city").trim().notEmpty().withMessage("Billing city is required"),
+    body("billingAddress.state").trim().notEmpty().withMessage("Billing state is required"),
+    body("billingAddress.postalCode").trim().notEmpty().withMessage("Billing postal code is required"),
+    body("billingAddress.country").trim().notEmpty().withMessage("Billing country is required"),
+    body("billingAddress.paymentMethod").isIn(["card", "paypal", "upi", "crypto"]).withMessage("Invalid payment method"),
+    body("billingAddress.isDefault").optional().isBoolean().withMessage("isDefault must be a boolean"),
+
+    async (req, res) => {
+        try {
+            // Validate request body
+            const errors = validationResult(req);
+            if (!errors.isEmpty()) {
+                return res.status(400).json({ success: false, errors: errors.array() });
+            }
+
+            const {
+                paymentMethodId,
+                cardType,
+                cardLast4Digits,
+                expirationDate,
+                cardHolderName,
+                billingAddress,
+            } = req.body;
+
+            const userId = req.user.id; // Extracted from JWT in verifyToken middleware
+
+            // If isDefault is true, reset other addresses' isDefault to false
+            if (billingAddress.isDefault) {
+                await UserPaymentMethod.updateMany({ userId }, { "billingAddress.isDefault": false });
+            }
+
+            const newPaymentMethod = new UserPaymentMethod({
+                userId,
+                paymentMethodId,
+                cardType,
+                cardLast4Digits,
+                expirationDate,
+                cardHolderName,
+                billingAddress,
+            });
+
+            await newPaymentMethod.save();
+            return res.status(201).json({ success: true, message: "Payment method added successfully", data: newPaymentMethod });
+        } catch (error) {
+            console.error("Error adding payment method:", error);
+            return res.status(500).json({ success: false, message: "Server error" });
+        }
+    }
+];
+
+export const getUserPaymentAddress = async (req, res) => {
+    try {
+        const userId = req.user.id; // Extracted from JWT in verifyToken middleware
+        const paymentMethods = await UserPaymentMethod.find({ userId }).sort({ "billingAddress.isDefault": -1 });
+
+        if (!paymentMethods.length) {
+            return res.status(404).json({ success: false, message: "No payment methods found" });
+        }
+
+        return res.status(200).json({ success: true, data: paymentMethods });
+    } catch (error) {
+        console.error("Error fetching payment methods:", error);
+        return res.status(500).json({ success: false, message: "Server error" });
+    }
+};
+
+export const setShipping = async (req, res) => {
+    try {
+        const { cartId, shippingCost, userShippingAddress } = req.body;
+
+        let cart = await Cart.findById(cartId);
+        if (!cart) return res.status(404).json({ message: "Cart not found" });
+
+        cart.shippingCost = shippingCost;
+        cart.userShippingAddress = userShippingAddress;
+
+        cart.total = cart.subtotal - cart.discounts.totalDiscount + cart.tax.taxAmount + shippingCost;
+
+        await cart.save();
+        res.json(cart);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+export const setPayment = async (req, res) => {
+    try {
+        const { cartId, userPaymentMethod } = req.body;
+
+        let cart = await Cart.findById(cartId);
+        if (!cart) return res.status(404).json({ message: "Cart not found" });
+
+        cart.userPaymentMethod = userPaymentMethod;
+
+        await cart.save();
+        res.json(cart);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+export const applyPromotions = async (req, res) => {
+    try {
+        const { cartId, promotionId, description } = req.body;
+
+        let cart = await Cart.findById(cartId);
+        if (!cart) return res.status(404).json({ message: "Cart not found" });
+
+        cart.promotions.push({ promotionId, description, applied: true });
+
+        await cart.save();
+        res.json(cart);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+export const useLoyalityPoints = async (req, res) => {
+    try {
+        const { cartId, points } = req.body;
+
+        let cart = await Cart.findById(cartId);
+        if (!cart) return res.status(404).json({ message: "Cart not found" });
+
+        cart.loyaltyPoints.redeemedPoints = points;
+        cart.total -= points; // Reduce total price
+
+        await cart.save();
+        res.json(cart);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+export const markGift = async (req, res) => {
+    try {
+        const { cartId, isGift } = req.body;
+
+        let cart = await Cart.findById(cartId);
+        if (!cart) return res.status(404).json({ message: "Cart not found" });
+
+        cart.isGift = isGift;
+
+        await cart.save();
+        res.json(cart);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+export const saveForLater = async (req, res) => {
+    try {
+        const { cartId } = req.body;
+
+        let cart = await Cart.findById(cartId);
+        if (!cart) return res.status(404).json({ message: "Cart not found" });
+
+        cart.savedForLater = true;
+
+        await cart.save();
+        res.json(cart);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};

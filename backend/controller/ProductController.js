@@ -22,7 +22,7 @@ export const createProduct = [
 
     // store images on cloudinary server.
 
-    body('id').trim().notEmpty().withMessage('Product ID is required').isString().withMessage('Product ID must be a string'),
+    body('id').trim().isString().withMessage('Product ID must be a string'),
     body('name').trim().isLength({ min: 3 }).withMessage('Product name must be at least 3 characters long'),
     body('brand').trim().notEmpty().withMessage('Brand is required'),
     body('category').trim().notEmpty().withMessage('Category is required'),
@@ -103,7 +103,7 @@ export const createProduct = [
 export const createBulkProducts = [
     body('products').isArray({ min: 1 }).withMessage('Products should be an array with at least one product'),
 
-    body('products.*.id').trim().notEmpty().withMessage('Product ID is required').isString().withMessage('Product ID must be a string'),
+    body('products.*.id').trim().isString().withMessage('Product ID must be a string'),
     body('products.*.name').trim().isLength({ min: 3 }).withMessage('Product name must be at least 3 characters long'),
     body('products.*.brand').trim().notEmpty().withMessage('Brand is required'),
     body('products.*.category').trim().notEmpty().withMessage('Category is required'),
@@ -139,7 +139,18 @@ export const createBulkProducts = [
             return res.status(400).json({ errors: errors.array() });
         }
 
-        const { products } = req.body;
+        let { products } = req.body;
+
+        console.log("Before processing:", JSON.stringify(products, null, 2));
+
+        if (!Array.isArray(products) || products.length === 0) {
+            return res.status(400).json({ message: "Invalid products data" });
+        }
+
+        // Remove `id` and `_id`
+        products = products.map(({ id, _id, ...rest }) => rest);
+
+        console.log("Final products before insert:", products);
 
         try {
             const createdProducts = await Product.insertMany(products);
@@ -247,7 +258,7 @@ export const getProducts = [
 ];
 
 export const getProductById = [
-    param('id').isString().withMessage('Invalid product ID format'),
+    param('id').isMongoId().withMessage('Invalid product ID format'),
 
     async (req, res) => {
         const errors = validationResult(req);
@@ -255,7 +266,7 @@ export const getProductById = [
             return res.status(400).json({ errors: errors.array() });
         }
         try {
-            const productData = await Product.findOne({ id: req.params.id }).populate('tags').populate('reviews').populate('ratings');
+            const productData = await Product.findOne({ _id: req.params.id }).populate('tags').populate('reviews').populate('ratings');
 
             if (!productData) {
                 return res.status(400).json({
@@ -280,7 +291,7 @@ export const getProductById = [
 ];
 
 export const deleteProduct = [
-    param('id').isString().withMessage('Invalid product ID format'),
+    param('id').isMongoId().withMessage('Invalid product ID format'),
 
     async (req, res) => {
         const errors = validationResult(req);
@@ -288,7 +299,7 @@ export const deleteProduct = [
             return res.status(400).json({ errors: errors.array() });
         }
         try {
-            const product = await Product.findOne({ id: req.params.id });
+            const product = await Product.findOne({ _id: req.params.id });
 
             if (!product) {
                 return res.status(404).json({ message: 'Product not found' });
@@ -305,7 +316,7 @@ export const deleteProduct = [
             // Remove product reference from category and sub-category 
             // Remove product ratings and reviews if exists
 
-            await Product.findOneAndDelete({ id: req.params.id });
+            await Product.findOneAndDelete({ _id: req.params.id });
             res.status(200).json({ message: 'Product deleted successfully' });
         }
         catch (err) {
@@ -316,7 +327,7 @@ export const deleteProduct = [
 ];
 
 export const updateProduct = [
-    param('id').isString().withMessage('Invalid product ID format'),
+    param('id').isMongoId().withMessage('Invalid product ID format'),
 
     body('name').optional().isString().trim().isLength({ min: 3 }).withMessage('Name must be at least 3 characters'),
     body('brand').optional().isString().trim().notEmpty().withMessage('Brand is required'),
@@ -388,7 +399,7 @@ export const updateProduct = [
             updateData['meta.updated_at'] = new Date();
 
             const updatedProduct = await Product.findOneAndUpdate(
-                { id }, 
+                { _id: id },
                 updateData,
                 { new: true }
             );

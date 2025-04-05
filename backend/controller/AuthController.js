@@ -7,6 +7,9 @@ import { sendOtpEmail } from "../utils/sendOtp.js"; // need to add variable afte
 import { UnverifiedUser } from '../models/UnverifiedUserModel.js';
 import { User } from "../models/UserModel.js";
 
+import express from "express";
+const router = express.Router()
+
 
 const OTP_EXPIRATION_TIME = 10 * 60 * 1000; // 10 minutes
 const RESEND_OTP_LIMIT = 60 * 1000; // 1 minute
@@ -320,12 +323,12 @@ export const resetPassword = [
         .withMessage("Password must contain at least one number")
         .matches(/[A-Z]/)
         .withMessage("Password must contain at least one uppercase letter"),
-        // .run(req),
+    // .run(req),
 
     body("confirmPassword")
         .custom((value, { req }) => value === req.body.password)
         .withMessage("Passwords do not match"),
-        // .run(req),
+    // .run(req),
 
     body("token").notEmpty().withMessage("Token is required"),
     // .run(req),
@@ -393,6 +396,21 @@ export const resetPassword = [
 
 // 1. OAuth 2.0
 // 2. Security Enhancements : 1. Rate Limiting (Brute Force Prevention)
-                            // 2. Secure Logout API (Clears cookies, prevents reuse)
-                            // 3. Two-Factor Authentication 
-                            // 4. Token Revocation Support (JWT Blacklisting)
+// 2. Secure Logout API (Clears cookies, prevents reuse)
+// 3. Two-Factor Authentication 
+// 4. Token Revocation Support (JWT Blacklisting)
+
+export const logout = (req, res) => {
+    try {
+        res.cookie("token", "", {
+            expires: new Date(0), // Expire the cookie immediately
+            httpOnly: true,
+            // secure: process.env.NODE_ENV === "production",
+            sameSite: "Strict",
+        });
+
+        res.status(200).json({ success: true, message: "User logged out successfully" });
+    } catch (error) {
+        res.status(500).json({ success: false, message: "Logout failed", error: error.message });
+    }
+};

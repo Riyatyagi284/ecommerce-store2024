@@ -1,19 +1,26 @@
 import mongoose from 'mongoose';
-const { Schema } = mongoose;
-
 
 const userSchema = new mongoose.Schema({
+    // userId: {
+    //     type: Schema.Types.UUID,
+    // },
     userId: {
-        type: Schema.Types.UUID,
+        type: String,
     },
+    // 
+    googleId: { type: String, required: true },
+    googleName: { type: String },
+    googleEmail: { type: String },
+    googleProfilePhoto: { type: String },
+    // 
     email: {
         type: String,
         format: 'email',
-        required: true,
+        // required: true,
     },
     password: {
         type: String,
-        required: true,
+        // required: true,
         minlength: 8,
     },
     confirmPassword: {
@@ -34,7 +41,7 @@ const userSchema = new mongoose.Schema({
     phone: {
         type: String,
         match: /^[0-9]{10,15}$/,
-        required: true,
+        // required: true,
     },
     dateOfBirth: {
         type: String,

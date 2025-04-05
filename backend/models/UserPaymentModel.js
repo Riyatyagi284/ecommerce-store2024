@@ -8,17 +8,20 @@ const userPaymentMethodSchema = new mongoose.Schema({
     cardLast4Digits: { type: String, required: true },
     expirationDate: { type: Date, required: true },
 
-    cardHolderName: {type: String, required: true },
-    
-    billingAddress: {
-        fullName: { type: String, required: true },
-        addressLine1: { type: String, required: true },
-        city: { type: String, required: true },
-        state: { type: String, required: true },
-        postalCode: { type: String, required: true },
-        country: { type: String, required: true }
-    }
-});
+    cardHolderName: { type: String, required: true },
 
-const UserPaymentMethod = mongoose.model('UserPaymentMethod', userPaymentMethodSchema);
-module.exports = UserPaymentMethod;
+    billingAddress: {
+        fullName: { type: String, required: true, trim: true },
+        phone: { type: String, required: true, trim: true },
+        addressLine1: { type: String, required: true, trim: true },
+        addressLine2: { type: String, trim: true },
+        city: { type: String, required: true, trim: true },
+        state: { type: String, required: true, trim: true },
+        postalCode: { type: String, required: true, trim: true },
+        country: { type: String, required: true, trim: true },
+        paymentMethod: { type: String, enum: ["card", "paypal", "upi", "crypto"], required: true }, 
+        isDefault: { type: Boolean, default: false },
+    }
+}, { timestamps: true });
+
+export const UserPaymentMethod = mongoose.model('UserPaymentMethod', userPaymentMethodSchema);
