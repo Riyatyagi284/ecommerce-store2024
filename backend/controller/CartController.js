@@ -27,67 +27,72 @@ export const addToCart = [
         }
 
         try {
-            const { productId, quantity, selectedSize, selectedColor, sessionId = null, cartId, userId } = req.body;
-
-            // console.log('sessionId', sessionId);
+            const { productId, productImages = [], quantity, selectedSize, selectedColor, cartId, userId } = req.body;
 
             const productQuantity = Number(quantity);
 
-            // Check if product exists
             const product = await Product.findOne({ _id: productId });
             if (!product) {
                 return res.status(404).json({ message: 'Product not found' });
             }
 
-            // Check stock availability
-            if (product.stock < productQuantity) {
-                return res.status(400).json({ message: 'Insufficient stock available' });
+            if (product.stock == 0) {
+                return res.status(400).json({ message: 'Product is out of stock' });
             }
 
-            // Validate selected size if applicable
+            if (product.stock < productQuantity) {
+                return res.status(400).json({ message: `We only have available stock of ${product.stock} quantity.` });
+            }
+
+            if (!productImages || productImages.length === 0) {
+                return res.status(404).json({ message: 'Please add product images first' });
+            }
+
+            for (let image of productImages) {
+                if (!image.url || typeof image.url !== "string") {
+                    return res.status(400).json({ error: "Each image must have a valid 'url'" });
+                }
+
+                if (image.alt && typeof image.alt !== "string") {
+                    return res.status(400).json({ error: "'alt' must be in a string format if provided" });
+                }
+            }
+
             if (selectedSize && !product.sizes.some(size => size.size === selectedSize)) {
                 return res.status(400).json({ message: 'Selected size is not available' });
             }
 
-            // Validate selected color if applicable
             if (selectedColor && !product.colors.some(color => color.color === selectedColor)) {
                 return res.status(400).json({ message: 'Selected color is not available' });
             }
 
-            // Find or create cart for user/session
-            // let cart = await Cart.findOne({ sessionId });
-            let cart = await Cart.findOne({ cartId });
+            let cart = await Cart.findOne({ userId }).populate('items');
             if (!cart) {
                 cart = new Cart({
-                    // cartId: new mongoose.Types.ObjectId().toString(),
-                    // userId: req.user ? req.user.id : null, // Handle guest users
-                    userId: userId, // Handle guest users
-                    sessionId,
+                    userId: userId,
                     items: [],
-                    subtotal: 0,
-                    total: 0,
+                    itemSubtotal: 0,
+                    finalBillAmount: 0,
                     currency: product.currency,
                 });
-                // console.log('cart', cart)
             }
             // Check if product already exists in cart
             const existingItem = cart.items.find(
-                item =>
-                    item.product.toString() === productId &&
-                    item.selectedSize === selectedSize &&
-                    item.selectedColor === selectedColor
-            );
+                item => {
+                    const sameProduct = item.productId.toString() === productId.toString();
+
+                    const sameSize = (item.attributes?.size || null) === (selectedSize || null);
+
+                    const sameColor = (item.attributes?.color || null) === (selectedColor || null);
+
+                    return sameProduct && sameSize && sameColor;
+                });
 
             if (existingItem) {
                 existingItem.quantity += productQuantity;
+                existingItem.totalPrice = existingItem.quantity * existingItem.price;
+                await existingItem.save();
             } else {
-                // cart.items.push({
-                //     product: productId,
-                //     quantity: productQuantity,
-                //     selectedSize,
-                //     selectedColor,
-                // });
-
                 const newItem = new Item({
                     productId,
                     quantity: productQuantity,
@@ -100,34 +105,30 @@ export const addToCart = [
                 await newItem.save();
                 cart.items.push(newItem._id);
             }
+            await cart.save();
 
-            // Update subtotal, tax, and total
-            // cart.subtotal = cart.items.reduce((sum, item) => {
-            //     console.log('inner_item', item);
-            //     sum + product?.price * item.quantity, 0
-            // });
+            // Populate items again to ensure all are documents
+            await cart.populate('items');
 
-            // console.log('cart', cart);
-            // cart.subtotal = cart.items.reduce((sum, item) => {
-            //     console.log("item" , item)
-            //     console.log("sum" , sum)
-            //     // console.log("item" , item.totalPrice)
-            //     // console.log("sum" ,sum + item.totalPrice)
-            //     // return sum + item.totalPrice;
-            //     // return sum + item.price * item.quantity;
-            // }, 0);
-
-            await cart.populate('items'); // Fetch actual Item documents
-
-            cart.subtotal = cart.items.reduce((sum, item) => {
-                return sum + item.price * item.quantity;
+            cart.itemSubtotal = cart.items && cart.items.reduce((sum, item) => {
+                const price = Number(item.totalPrice) || 0;
+                return sum + price;
             }, 0);
 
             // cart.tax.taxAmount = cart?.subtotal * (cart?.tax?.taxPercentage || 0) / 100;
             // cart.total = cart?.subtotal + cart?.tax.taxAmount + (cart?.shippingCost || 0);
             // console.log('cart', cart);
 
+            // now push this to user schema
+            await User.findByIdAndUpdate(
+                userId,
+                { $addToSet: { cart: cart._id } },
+                { new: true }
+            );
+
             await cart.save();
+            product.stock -= productQuantity;
+            await product.save();
             return res.status(200).json({ message: 'Product added to cart successfully', cart });
         } catch (error) {
             console.error('Error adding to cart:', error);
@@ -137,24 +138,25 @@ export const addToCart = [
 ];
 
 export const removeItemsFromCart = [
-    body('cartId').isMongoId().withMessage('Invalid cart ID format'),
+    // body('cartId').isMongoId().withMessage('Invalid cart ID format'),
     body('productId').isMongoId().withMessage('Invalid product ID format'),
+    body('itemId').isMongoId().withMessage('Invalid item ID format'),
     body('userId').optional().isMongoId().withMessage('Invalid user ID format'),
-    body('sessionId').optional().isString().withMessage('Invalid session ID format'),
+    // body('sessionId').optional().isString().withMessage('Invalid session ID format'),
     body('selectedSize').optional().isString().withMessage('Invalid size format'),
     body('selectedColor').optional().isString().withMessage('Invalid color format'),
-
     async (req, res) => {
-        const errors = validationResult(req);
+        const errors = validationResult(
+            req);
         if (!errors.isEmpty()) {
             return res.status(400).json({ errors: errors.array() });
         }
 
         try {
-            const { cartId, productId, userId, sessionId, selectedSize, selectedColor } = req.body;
+            const { productId, itemId, userId, selectedSize, selectedColor } = req.body;
 
             // Validate Cart Exists
-            let cart = await Cart.findById(cartId);
+            let cart = await Cart.findOne({ userId }).populate('items');
             if (!cart) {
                 return res.status(404).json({ message: 'Cart not found' });
             }
@@ -162,6 +164,10 @@ export const removeItemsFromCart = [
             // Validate User Authorization
             if (userId && cart.userId && cart.userId.toString() !== userId) {
                 return res.status(403).json({ message: 'You are not authorized to modify this cart' });
+            }
+
+            if (!itemId) {
+                return res.status(400).json({ message: 'item id not found that you want to delete.' });
             }
 
             // Validate Empty Cart
@@ -172,38 +178,58 @@ export const removeItemsFromCart = [
             // Validate Item Exists in Cart
             const itemIndex = cart.items.findIndex(
                 item =>
-                    item.product.toString() === productId &&
-                    (!selectedSize || item.selectedSize === selectedSize) &&
-                    (!selectedColor || item.selectedColor === selectedColor)
+                    item => {
+                        const sameProduct = item.productId.toString() === productId.toString();
+
+                        const sameSize = (item.attributes?.size || null) === (selectedSize || null);
+
+                        const sameColor = (item.attributes?.color || null) === (selectedColor || null);
+
+                        return sameProduct && sameSize && sameColor;
+                    }
             );
 
             if (itemIndex === -1) {
                 return res.status(404).json({ message: 'Item not found in the cart' });
             }
 
-            // Remove Item from Cart
-            cart.items.splice(itemIndex, 1);
-
             // Validate Cart State
-            if (cart.subtotal == null || cart.total == null || cart.currency == null) {
+            // if (cart.itemSubtotal == null || cart.finalBillAmount == null || cart.currency == null) {
+            //     return res.status(400).json({ message: 'Invalid cart state. Please review your cart.' });
+            // }
+
+            if (cart.itemSubtotal == null || cart.finalBillAmount == null) {
                 return res.status(400).json({ message: 'Invalid cart state. Please review your cart.' });
             }
-
-            // Recalculate Cart Totals
-            cart.subtotal = cart.items.reduce((sum, item) => sum + item.quantity * item.product.price, 0);
-            cart.tax.taxAmount = cart.subtotal * (cart.tax.taxPercentage || 0) / 100;
-            cart.total = cart.subtotal + cart.tax.taxAmount + (cart.shippingCost || 0);
 
             // Ensure Positive Price Values
             if (cart.subtotal < 0 || cart.total < 0 || cart.tax.taxAmount < 0) {
                 return res.status(400).json({ message: 'Invalid cart calculations. Please try again.' });
             }
 
+            // Remove Item from Cart
+            cart.items.splice(itemIndex, 1);
+
+            await cart.populate('items');
+
+            // Recalculate Cart Totals
+            cart.itemSubtotal = cart.items.reduce((sum, item) => sum + (item.totalPrice || (item.price * item.quantity)), 0);
+            // cart.tax.taxAmount = cart.subtotal * (cart.tax.taxPercentage || 0) / 100;
+            // cart.total = cart.subtotal + cart.tax.taxAmount + (cart.shippingCost || 0);
+
             // Handle Discounts and Promotions
-            if (cart.discounts) {
-                // Revalidate Discounts if applicable
-                cart.discounts.totalDiscount = Math.min(cart.subtotal * 0.1, cart.subtotal);
-            }
+            // if (cart.discounts) {
+            //     // Revalidate Discounts if applicable
+            //     cart.discounts.totalDiscount = Math.min(cart.subtotal * 0.1, cart.subtotal);
+            // }
+
+            const itemObjectId = new mongoose.Types.ObjectId(itemId);
+            await Cart.updateOne(
+                { _id: cart._id },
+                { $pull: { items: itemObjectId } }
+            );
+
+            await Item.findByIdAndDelete(itemObjectId);
 
             await cart.save();
             return res.status(200).json({ message: 'Item removed from cart successfully', cart });
@@ -215,9 +241,9 @@ export const removeItemsFromCart = [
 ];
 
 export const getAllCartProducts = [
-    query('cartId').isMongoId().withMessage('Invalid cart ID format'),
+    // query('cartId').isMongoId().withMessage('Invalid cart ID format'),
     query('userId').optional().isMongoId().withMessage('Invalid user ID format'),
-    query('sessionId').optional().isString().withMessage('Invalid session ID format'),
+    // query('sessionId').optional().isString().withMessage('Invalid session ID format'),
 
     async (req, res) => {
         const errors = validationResult(req);
@@ -226,13 +252,15 @@ export const getAllCartProducts = [
         }
 
         try {
-            const { cartId, userId, sessionId } = req.query;
+            const { userId } = req.query;
 
             // Validate Cart Exists
-            let cart = await Cart.findById(cartId).populate({
-                path: 'items',
-                populate: { path: 'product', select: 'name price images stock' }
-            });
+            // let cart = await Cart.findOne({ userId }).populate({
+            //     path: 'items',
+            //     // populate: { path: 'Product', select: 'name price images stock' }
+            // });
+
+            let cart = await Cart.findOne({ userId }).populate('items');
 
             if (!cart) {
                 return res.status(404).json({ message: 'Cart not found' });
@@ -249,18 +277,27 @@ export const getAllCartProducts = [
             }
 
             // Validate Cart State
-            if (cart.subtotal == null || cart.total == null || cart.currency == null) {
+            // if (cart.subtotal == null || cart.total == null || cart.currency == null) {
+            //     return res.status(400).json({ message: 'Invalid cart state. Please review your cart.' });
+            // }
+
+            if (cart.itemSubtotal == null || cart.finalBillAmount == null) {
                 return res.status(400).json({ message: 'Invalid cart state. Please review your cart.' });
             }
 
-            if (cart.subtotal < 0 || cart.total < 0 || cart.tax?.taxAmount < 0) {
+            // if (cart.itemSubtotal < 0 || cart.finalBillAmount < 0 || cart.tax?.taxAmount < 0) {
+            //     return res.status(400).json({ message: 'Invalid cart calculations. Please try again.' });
+            // }
+
+            if (cart.itemSubtotal < 0 || cart.finalBillAmount < 0) {
                 return res.status(400).json({ message: 'Invalid cart calculations. Please try again.' });
             }
 
+
             // Ensure Valid Item References
-            if (cart.items.some(item => !item.product)) {
-                return res.status(400).json({ message: 'Invalid item references found in cart' });
-            }
+            // if (cart.items.some(item => !item.product)) {
+            //     return res.status(400).json({ message: 'Invalid item references found in cart' });
+            // }
 
             return res.status(200).json({ message: 'Cart retrieved successfully', cart });
         } catch (error) {
@@ -424,7 +461,7 @@ export const saveCartForFutureUse = async (req, res) => {
 
 // Update Cart API
 export const updateCart = [
-    body('sessionId').optional().isString().withMessage('Session ID must be a string'),
+    // body('sessionId').optional().isString().withMessage('Session ID must be a string'),
     body('items').optional().isArray().withMessage('Items must be an array'),
     body('total').optional().isNumeric().withMessage('Total must be a number'),
     body('currency').optional().isString().withMessage('Currency must be a string'),
@@ -476,7 +513,6 @@ export const updateCart = [
 ];
 
 // create discount first before applying
-
 export const createDiscount = [
     body("code").trim().isString().notEmpty().withMessage("Discount code is required."),
     body("discountType").isIn(["percentage", "flat"]).withMessage("Invalid discount type."),
@@ -613,6 +649,7 @@ export const applyDiscount = [
     }
 ];
 
+// create tax first before applying 
 export const applyTax = async (req, res) => {
     try {
         const { cartId, taxPercentage } = req.body;
@@ -655,8 +692,12 @@ export const setUserShippingAddress = [
                 return res.status(400).json({ success: false, errors: errors.array() });
             }
 
-            const { fullName, addressLine1, addressLine2, city, state, postalCode, country, phone, isDefault } = req.body;
-            const userId = req.user.id; // Extracted from JWT in verifyToken middleware
+            const { fullName, addressLine1, addressLine2, city, state, postalCode, country, phone, isDefault, userId } = req.body;
+            // const userId = req.user.id; // Extracted from JWT in verifyToken middleware
+
+            if (!userId) {
+                return res.status(400).json({ success: false, message: 'please provide userId' })
+            }
 
             // If isDefault is true, reset other addresses' isDefault to false
             if (isDefault) {
@@ -676,18 +717,44 @@ export const setUserShippingAddress = [
                 isDefault: isDefault || false,
             });
 
+            
+
             await newAddress.save();
+
+            await User.findByIdAndUpdate(
+                userId,
+                { $addToSet: { addresses: newAddress._id } },
+                { new: true }
+            );
+
+            const cart = await Cart.findOne({ userId });
+
+            if (cart) {
+                cart.userShippingAddress = newAddress._id;
+                await cart.save();
+            }
+
+
             return res.status(201).json({ success: true, message: "Address added successfully", data: newAddress });
         } catch (error) {
             console.error("Error adding shipping address:", error);
-            return res.status(500).json({ success: false, message: "Server error" });
+            return res.status(500).json({ success: false, message: "Error occur while setting shipping address." });
         }
     }
 ]
 
 export const getUserShippingAddress = async (req, res) => {
     try {
-        const userId = req.user.id;
+        // const userId = req.user.id;
+        const { userId } = req.body;
+
+        if (!userId) {
+            return res.status(400).json({
+                success: false,
+                message: 'userId not found!!'
+            })
+        }
+
         const addresses = await UserShippingAddress.find({ userId }).sort({ isDefault: -1 });
 
         if (!addresses.length) {
@@ -699,7 +766,7 @@ export const getUserShippingAddress = async (req, res) => {
         console.error("Error fetching shipping addresses:", error);
         return res.status(500).json({ success: false, message: "Server error" });
     }
-} 
+}
 
 export const setUserPaymentAddress = [
     body("paymentMethodId").trim().notEmpty().withMessage("Payment method ID is required"),
@@ -791,7 +858,7 @@ export const setShipping = async (req, res) => {
         cart.total = cart.subtotal - cart.discounts.totalDiscount + cart.tax.taxAmount + shippingCost;
 
         await cart.save();
-        res.json(cart);
+        res.json(cart); 
     } catch (error) {
         res.status(500).json({ message: error.message });
     }

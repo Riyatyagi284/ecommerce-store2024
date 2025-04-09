@@ -21,8 +21,10 @@ router.post('/create-discount', createDiscount);
 // router.post('/apply-discount', loggedInUsersOnly, applyDiscount);
 router.post('/apply-discount', applyDiscount);
 
-router.post('/set-shipping-address', verifyToken, setUserShippingAddress);
-router.get('/get-shipping-address', verifyToken, getUserShippingAddress);
+// router.post('/set-shipping-address', verifyToken, setUserShippingAddress);
+router.post('/set-shipping-address', setUserShippingAddress);
+// router.get('/get-shipping-address', verifyToken, getUserShippingAddress);
+router.get('/get-shipping-address', getUserShippingAddress);
 
 router.post('/apply-tax', applyTax);
 router.post('/set-shipping', setShipping);

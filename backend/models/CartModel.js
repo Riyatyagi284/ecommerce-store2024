@@ -3,13 +3,13 @@ import mongoose from 'mongoose';
 const cartSchema = new mongoose.Schema({
     cartId: { type: String },
     userId: { type: String, required: true },
-    sessionId: { type: String, required: true },
+    // sessionId: { type: String, required: true },
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now },
 
     items: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Item' }],
 
-    subtotal: { type: Number, required: true },
+    itemSubtotal: { type: Number, required: true },
     discounts: {
         totalDiscount: { type: Number },
         discountsApplied: [
@@ -24,7 +24,7 @@ const cartSchema = new mongoose.Schema({
         taxAmount: { type: Number }
     },
     shippingCost: { type: Number },
-    total: { type: Number, required: true },
+    finalBillAmount: { type: Number, required: true },
     currency: { type: String, required: true },
 
     userShippingAddress: { type: mongoose.Schema.Types.ObjectId, ref: 'UserShippingAddress' },

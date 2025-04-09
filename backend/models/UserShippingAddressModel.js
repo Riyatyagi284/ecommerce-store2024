@@ -14,6 +14,7 @@ const userShippingAddressSchema = new mongoose.Schema({
     country: { type: String, required: true, trim: true },
     phone: { type: String },
     isDefault: { type: Boolean, default: false },
+    userId: { type: String, required: true, trim: true }
 }, { timestamps: true });
 
 export const UserShippingAddress = mongoose.model('UserShippingAddress', userShippingAddressSchema);
